@@ -1,0 +1,216 @@
+#!/bin/bash
+
+#
+# Script variables
+#
+script="tower-job-list"
+version="0.1"
+tower_version="3.8.2"
+tower=""
+username=""
+password=""
+status=""
+page_size="200"
+next_page=""
+json_query=""
+data_file="/tmp/tmp.tower_data"
+list_file="/tmp/tmp.tower_list"
+
+#
+# Parse arguments
+#
+parse_args() {
+	local arg="${1}"
+    local valid_status
+
+	while [ -n "${arg}" ]; do
+		case "${arg}" in
+		-h|--help)
+			show_usage
+            break
+            ;;
+		-t|--tower-host)
+			shift
+            tower="${1}"
+            ;;
+		-u|--username)
+			shift
+            username="${1}"
+            ;;
+		-p|--password)
+			shift
+            password="${1}"
+            ;;
+		-s|--status)
+			shift
+            status="${1}"
+            for i in new pending waiting running successful failed error canceled; do
+                if [ "${status}" == "${i}" ]; then valid_status=y; break; fi
+            done
+            if [ -z "${valid_status}" ]; then
+                show_usage "Invalid status: ${status}"
+            fi
+            ;;
+		*)
+            show_usage "Invalid option: ${arg}"
+            break
+            ;;
+		esac
+
+        shift
+        arg="${1}"
+	done
+
+    echo ""
+    if [ -z "${username}" ]; then
+        read -p "Username: " username
+    fi
+
+    if [ -z "${password}" ]; then
+        read -s -p "Password: " password
+        echo ""
+    fi
+}
+
+#
+# Show usage
+#
+show_usage() {
+    local usage_error="${1}"
+
+	if [ -n "${usage_error}" ]; then
+        echo "" >&2
+		echo "${usage_error}" >&2
+    fi
+
+    echo ""
+    echo "${script} v${version}"
+    echo ""
+    echo "    Retrieve the list of ansible tower jobs"
+    echo "    API Reference: https://docs.ansible.com/ansible-tower/${tower_version}/html/towerapi/api_ref.html"
+	echo ""
+    echo "Usage:"
+    echo ""
+    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-s|--status <choice>] [-h|--help]"
+	echo ""
+    echo "Options:"
+    echo ""
+    echo "    -t, --tower-host  tower server hostname or ip address"
+    echo "    -u, --username    tower username (default: prompt for username)"
+    echo "    -p, --password    tower password (default: prompt for password)"
+    echo "    -s, --status      filter jobs by status (choice: new, pending, waiting, running, successful, failed, error, canceled)"
+    echo "    -h, --help        display this message and exit"
+
+    echo ""
+	if [ -n "${usage_error}" ]; then
+		exit 1
+	fi
+
+    exit
+}
+
+#
+# Cleanup temp files
+#
+clean_up() {
+    rm -rf "${data_file}"
+    rm -rf "${list_file}"
+}
+
+#
+# Show error
+#
+show_error() {
+    local message="${1}"
+    local details="${2}"
+
+    echo "" >&2
+    echo "${message}" >&2
+
+    if [ -n "${details}" ]; then
+        echo "${details}" >&2
+    fi
+
+    echo "" >&2
+    clean_up
+    exit 1
+}
+
+#
+# Get data
+#
+get_data() {
+    local result
+
+    result=$(curl -k -s -S -f -o ${data_file} -u "${username}:${password}" "https://${tower}${next_page}" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        show_error "Error retrieving data from server" "${result}"
+    fi
+}
+
+#
+# Get next page
+#
+get_next() {
+    local result
+
+    result=$(jq -r '.next' "${data_file}" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        show_error "Error processing received data" "${result}"
+    fi
+
+    next_page="${result}"
+}
+
+#
+# Get job list
+#
+get_list() {
+    local result
+
+    result=$(jq -r "${json_query}" "${data_file}" 2>&1 >> ${list_file})
+
+    if [ $? -ne 0 ]; then
+        show_error "Error processing received data" "${result}"
+    fi
+}
+
+#
+# Show jobs
+#
+show_jobs() {
+    next_page="/api/v2/jobs/?page_size=${page_size}&order_by=id"
+
+    json_query='.results[]'
+    if [ -n "${status}" ]; then
+        json_query="${json_query}"' | select ( .status == "'"${status}"'" )'
+    fi
+    json_query="${json_query}"' | [.id, .name, .job_type, .launch_type, .status, (.started // empty | split(".")[0] + "Z" | fromdate | strftime("%Y-%m-%d %H:%M:%S")), .elapsed] | @tsv'
+    echo "ID"$'\t'"Name"$'\t'"Job Type"$'\t'"Launch Type"$'\t'"Status"$'\t'"Started (UTC)"$'\t'"Elapsed"$'\n'"--"$'\t'"----"$'\t'"--------"$'\t'"-----------"$'\t'"------"$'\t'"-------------"$'\t'"-------" > "${list_file}"
+
+    echo ""
+    echo -n "Retrieving data. Please wait"
+
+    while [ "${next_page}" != "null" ]; do
+        echo -n "."
+        get_data
+        get_list
+        get_next
+    done
+    echo ""
+
+    echo ""
+    cat "${list_file}" | column -t -s $'\t'
+    echo ""
+
+    clean_up
+    exit
+}
+
+#
+# Main
+#
+parse_args ${@}
+show_jobs

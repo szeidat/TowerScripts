@@ -1,0 +1,210 @@
+#!/bin/bash
+
+#
+# Script variables
+#
+script="tower-job-summary"
+version="0.1"
+tower_version="3.8.2"
+tower=""
+username=""
+password=""
+job_id=""
+page_size="200"
+next_page=""
+json_query=""
+data_file="/tmp/tmp.tower_data"
+list_file="/tmp/tmp.tower_list"
+
+#
+# Parse arguments
+#
+parse_args() {
+	local arg="${1}"
+    local got_job_id
+
+	while [ -n "${arg}" ]; do
+		case "${arg}" in
+		-h|--help)
+			show_usage
+            break
+            ;;
+		-t|--tower-host)
+			shift
+            tower="${1}"
+            ;;
+		-u|--username)
+			shift
+            username="${1}"
+            ;;
+		-p|--password)
+			shift
+            password="${1}"
+            ;;
+		*)
+            if [ -n "${got_job_id}" ]; then
+                show_usage "Invalid option: ${arg}"
+            fi
+            got_job_id=y
+            job_id="${arg}"
+            ;;
+		esac
+		
+        shift
+        arg="${1}"
+	done
+
+    if [ -z "${got_job_id}" ]; then
+        show_usage "Missing job id"
+    fi
+
+    echo ""
+    if [ -z "${username}" ]; then
+        read -p "Username: " username
+    fi
+
+    if [ -z "${password}" ]; then
+        read -s -p "Password: " password
+        echo ""
+    fi
+}
+
+#
+# Show usage
+#
+show_usage() {
+    local usage_error="${1}"
+
+	if [ -n "${usage_error}" ]; then
+        echo "" >&2
+		echo "${usage_error}" >&2
+        echo "" >&2
+    fi
+
+    echo ""
+    echo "${script} v${version}"
+    echo ""
+    echo "    Retrieve host summaries for an ansible tower job"
+    echo "    API Reference: https://docs.ansible.com/ansible-tower/${tower_version}/html/towerapi/api_ref.html"
+	echo ""
+    echo "Usage:"
+    echo ""
+    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-h|--help] job-id"
+	echo ""
+    echo "Options:"
+    echo ""
+    echo "    -t, --tower-host  tower server hostname or ip address"
+    echo "    -u, --username    tower username (default: prompt for username)"
+    echo "    -p, --password    tower password (default: prompt for password)"
+    echo "    -h, --help        display this message and exit"
+    echo "    job-id            tower job id"
+
+    echo ""
+	if [ -n "${usage_error}" ]; then
+		exit 1
+	fi
+    
+    exit
+}
+
+#
+# Cleanup temp files
+#
+clean_up() {
+    rm -rf "${data_file}"
+    rm -rf "${list_file}"
+}
+
+#
+# Show error
+#
+show_error() {
+    local message="${1}"
+    local details="${2}"
+
+    echo "" >&2
+    echo "${message}" >&2
+
+    if [ -n "${details}" ]; then
+        echo "${details}" >&2
+    fi
+
+    echo "" >&2
+    clean_up
+    exit 1
+}
+
+#
+# Get data
+#
+get_data() {
+    local result
+    
+    result=$(curl -k -s -S -f -o ${data_file} -u "${username}:${password}" "https://${tower}${next_page}" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        show_error "Error retrieving data from server" "${result}"
+    fi
+}
+
+#
+# Get next page
+#
+get_next() {
+    local result
+    
+    result=$(jq -r '.next' "${data_file}" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        show_error "Error processing received data" "${result}"
+    fi
+
+    next_page="${result}"
+}
+
+#
+# Get host list
+#
+get_list() {
+    local result
+    
+    result=$(jq -r "${json_query}" "${data_file}" 2>&1 >> ${list_file})
+
+    if [ $? -ne 0 ]; then
+        show_error "Error processing received data" "${result}"
+    fi
+}
+
+#
+# Show host list
+#
+show_hosts() {
+    next_page="/api/v2/jobs/${job_id}/job_host_summaries/?page_size=${page_size}&order_by=host_name"
+
+    json_query='.results[] | [.host_name, .ok, .changed, .dark, .failures, .skipped, .rescued, .ignored] | @tsv'
+    echo "Host"$'\t'"Ok"$'\t'"Changed"$'\t'"Unreachable"$'\t'"Failed"$'\t'"Skipped"$'\t'"Rescued"$'\t'"Ignored"$'\n'"----"$'\t'"--"$'\t'"-------"$'\t'"-----------"$'\t'"------"$'\t'"-------"$'\t'"-------"$'\t'"-------" > "${list_file}"
+
+    echo ""
+    echo -n "Retrieving data. Please wait"
+
+    while [ "${next_page}" != "null" ]; do
+        echo -n "."      
+        get_data
+        get_list
+        get_next
+    done
+    echo ""
+
+    echo ""
+    cat "${list_file}" | column -t -s $'\t'
+    echo ""
+
+    clean_up
+    exit
+}
+
+#
+# Main
+#
+parse_args ${@}
+show_hosts
