@@ -4,20 +4,21 @@
 # Script variables
 #
 script="tower-job-output"
-version="0.2"
+version="0.3"
 tower_version="3.8.2"
 tower=""
 username=""
 password=""
 filename=""
 format=""
-hostname=""
+hostnames=""
+changed=""
 job_id=""
 page_size="200"
 next_page=""
 json_query=""
-data_file="/tmp/tmp.tower_data"
-list_file="/tmp/tmp.tower_host"
+data_file="/tmp/tower_data_$(head /dev/random | tr -dc A-Za-z0-9 | head -c10)"
+list_file="/tmp/tower_host_$(head /dev/random | tr -dc A-Za-z0-9 | head -c10)"
 
 #
 # Parse arguments
@@ -52,16 +53,19 @@ parse_args() {
 		-f|--format)
 			shift
             format="${1}"
-            for i in ansi html; do
+            for i in ansi html txt; do
                 if [ "${format}" == "${i}" ]; then valid_format=y; break; fi
             done
             if [ -z "${valid_format}" ]; then
                 show_usage "Invalid format: ${format}"
             fi
             ;;
-		-l|--limit-host)
+		-l|--limit)
 			shift
-            hostname="${1}"
+            hostnames="${1}"
+            ;;
+		-c|--changed)
+			changed="yes"
             ;;
 		*)
             if [ -n "${got_job_id}" ]; then
@@ -76,16 +80,16 @@ parse_args() {
         arg="${1}"
 	done
 
-    if [ -z "${filename}" -a -n "${format}" ]; then
-        show_usage "Missing output file name"
-    fi
-
     if [ -z "${format}" ]; then
         format="ansi"
     fi
 
-    if [ -n "${hostname}" -a "${format}" == "html" ]; then
-        show_usage "Invalid output format for host limit option"
+    if [ -n "${hostnames}" -a "${format}" == "html" ]; then
+        show_usage "Invalid output format for 'limit' option"
+    fi
+
+    if [ -n "${changed}" -a "${format}" == "html" ]; then
+        show_usage "Invalid output format for 'changed' option"
     fi
 
     if [ -z "${got_job_id}" ]; then
@@ -123,16 +127,17 @@ show_usage() {
 	echo ""
     echo "Usage:"
     echo ""
-    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename [-f|--format ansi|html]] [-l|--limit-host hostname] [-h|--help] job-id"
+    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename [-f|--format ansi|html]] [-l|--limit hostnames] [-c|--changed] [-h|--help] job-id"
 	echo ""
     echo "Options:"
     echo ""
     echo "    -t, --tower-host  tower server hostname or ip address"
     echo "    -u, --username    tower username (default: prompt for username)"
     echo "    -p, --password    tower password (default: prompt for password)"
-    echo "    -o, --output      save output to file"
-    echo "    -f, --format      file format (choice: ansi, html. default: ansi)"
-    echo "    -l, --limit-host  limit output to hostname only (cannot be used with html output format)"
+    echo "    -o, --output      save output to filename"
+    echo "    -f, --format      file format (choice: ansi, html, txt. default: ansi)"
+    echo "    -l, --limit       show output from hostnames only (comma separated list. cannot be used with html output format)"
+    echo "    -c, --changed     show output from tasks with changed status only (cannot be used with html output format)"
     echo "    -h, --help        display this message and exit"
     echo "    job-id            tower job id"
 
@@ -224,10 +229,31 @@ show_output() {
         get_data
         echo ""
 
-        cat "${data_file}" > "${filename}"
-        echo "Output saved to ${filename}"
+        if [ -n "${filename}" ]; then
+            cat "${data_file}" > "${filename}"
+            echo "Output saved to ${filename}"
+        else
+            echo ""
+            cat "${data_file}"
+        fi
         echo ""
-    elif [ -z "${hostname}" ]; then
+    elif [ "${format}" == "txt" -a -z "${hostnames}" -a -z "${changed}" ]; then
+        next_page="/api/v2/jobs/${job_id}/stdout/?format=txt_download"
+
+        echo ""
+        echo -n "Retrieving data. Please wait."
+        get_data
+        echo ""
+
+        if [ -n "${filename}" ]; then
+            cat "${data_file}" > "${filename}"
+            echo "Output saved to ${filename}"
+        else
+            echo ""
+            cat "${data_file}"
+        fi
+        echo ""
+    elif [ "${format}" == "ansi" -a -z "${hostnames}" -a -z "${changed}" ]; then
         next_page="/api/v2/jobs/${job_id}/stdout/?format=ansi_download"
 
         echo ""
@@ -244,8 +270,59 @@ show_output() {
         fi
         echo ""
     else
-        next_page="/api/v2/jobs/${job_id}/job_events/?page_size=${page_size}&order_by=start_line&host_name__icontains=${hostname}"
-        json_query='.results[] | select (.stdout != "") | if (.role != "") then "\r\nTASK [" + .role + " : " + .task + "]" else "\r\nTASK [" + .task + "]" end,.stdout'
+        if [ -n "${hostnames}" ]; then
+            next_page="/api/v2/jobs/${job_id}/job_events/?page_size=${page_size}&order_by=counter&or__host_name__in=${hostnames}&or__event=playbook_on_task_start"
+        else
+            next_page="/api/v2/jobs/${job_id}/job_events/?page_size=${page_size}&order_by=counter"
+        fi
+
+        if [ -n "${changed}" ]; then
+            json_query='.results[] |
+                select (
+                    (."changed" == true) or (has("changed") == false) or
+                    (."event" == "playbook_on_task_start") or
+                    (."event" == "runner_on_file_diff") or
+                    (."event" == "runner_on_error") or
+                    (."event" == "runner_on_failed") or
+                    (."event" == "debug") or
+                    (."event" == "verbose") or
+                    (."event" == "deprecated") or
+                    (."event" == "warning") or
+                    (."event" == "system_warning") or
+                    (."event" == "error")
+                ) |
+                if (."event" == "playbook_on_task_start")
+                then
+                    if (.role != "")
+                    then
+                        "\r\nTASK [" + .role + " : " + .task + "]"
+                    else
+                        "\r\nTASK [" + .task + "]"
+                    end
+                elif (."stdout" != "")
+                then
+                    "\r\n" + .stdout
+                else
+                    empty
+                end'
+        else
+            json_query='.results[] |
+                select (
+                    (."stdout" != "") or
+                    (."event" == "playbook_on_task_start")
+                ) |
+                if (."event" == "playbook_on_task_start")
+                then
+                    if (.role != "")
+                    then
+                        "\r\nTASK [" + .role + " : " + .task + "]"
+                    else
+                        "\r\nTASK [" + .task + "]"
+                    end
+                else
+                    "\r\n" + .stdout
+                end'
+        fi
         clean_up
 
         echo ""
@@ -260,11 +337,19 @@ show_output() {
         echo ""
 
         if [ -n "${filename}" ]; then
-            cat "${list_file}" > "${filename}"
+            if [ "${format}" == "txt" ]; then
+                cat "${list_file}" | sed "s/\x1B\[[0-9;]\{1,\}[A-Za-z]//g" > "${filename}"
+            else
+                cat "${list_file}" > "${filename}"
+            fi
             echo "Output saved to ${filename}"
         else
             echo ""
-            cat "${list_file}"
+            if [ "${format}" == "txt" ]; then
+                cat "${list_file}" | sed "s/\x1B\[[0-9;]\{1,\}[A-Za-z]//g"
+            else
+                cat "${list_file}"
+            fi
         fi
         echo ""
     fi

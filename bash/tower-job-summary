@@ -4,7 +4,7 @@
 # Script variables
 #
 script="tower-job-summary"
-version="0.1"
+version="0.2"
 tower_version="3.8.2"
 tower=""
 username=""
@@ -13,8 +13,8 @@ job_id=""
 page_size="200"
 next_page=""
 json_query=""
-data_file="/tmp/tmp.tower_data"
-list_file="/tmp/tmp.tower_list"
+data_file="/tmp/tower_data_$(head /dev/random | tr -dc A-Za-z0-9 | head -c10)"
+list_file="/tmp/tower_host_$(head /dev/random | tr -dc A-Za-z0-9 | head -c10)"
 
 #
 # Parse arguments

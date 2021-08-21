@@ -21,7 +21,7 @@ Usage:
 ```bash
 $ tower-job-list --help
 
-tower-job-list v0.1
+tower-job-list v0.2
 
     Retrieve the list of ansible tower jobs
     API Reference: https://docs.ansible.com/ansible-tower/3.8.2/html/towerapi/api_ref.html
@@ -79,7 +79,7 @@ ID     Name                                                                 Job 
 Usage:
 
 ```bash
-$ tower-job-summary v0.1
+$ tower-job-summary v0.2
 
     Retrieve host summaries for an ansible tower job
     API Reference: https://docs.ansible.com/ansible-tower/3.8.2/html/towerapi/api_ref.html
@@ -119,23 +119,24 @@ Usage:
 ```bash
 $ tower-job-output --help
 
-tower-job-output v0.2
+tower-job-output v0.3
 
     Retrieve standard output for an ansible tower job
     API Reference: https://docs.ansible.com/ansible-tower/3.8.2/html/towerapi/api_ref.html
 
 Usage:
 
-    tower-job-output [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename [-f|--format ansi|html]] [-l|--limit-host hostname] [-h|--help] job-id
+    tower-job-output [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename [-f|--format ansi|html]] [-l|--limit hostnames] [-c|--changed] [-h|--help] job-id
 
 Options:
 
     -t, --tower-host  tower server hostname or ip address
     -u, --username    tower username (default: prompt for username)
     -p, --password    tower password (default: prompt for password)
-    -o, --output      save output to file
-    -f, --format      file format (choice: ansi, html. default: ansi)
-    -l, --limit-host  limit output to hostname only (cannot be used with html output format)
+    -o, --output      save output to filename
+    -f, --format      file format (choice: ansi, html, txt. default: ansi)
+    -l, --limit       show output from hostnames only (comma separated list. cannot be used with html output format)
+    -c, --changed     show output from tasks with changed status only (cannot be used with html output format)
     -h, --help        display this message and exit
     job-id            tower job id
 ```
