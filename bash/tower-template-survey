@@ -1,0 +1,215 @@
+#!/bin/bash
+
+#
+# Script variables
+#
+script="tower-template-survey"
+version="0.1"
+tower_version="3.8.2"
+tower=""
+username=""
+password=""
+filename=""
+update=""
+template_id=""
+data_path=""
+data_file="/tmp/tower_data_$(head /dev/random | tr -dc A-Za-z0-9 | head -c10)"
+
+#
+# Parse arguments
+#
+parse_args() {
+	local arg="${1}"
+    local got_template_id
+
+	while [ -n "${arg}" ]; do
+		case "${arg}" in
+		-h|--help)
+			show_usage
+            break
+            ;;
+		-t|--tower-host)
+			shift
+            tower="${1}"
+            ;;
+		-u|--username)
+			shift
+            username="${1}"
+            ;;
+		-p|--password)
+			shift
+            password="${1}"
+            ;;
+		-d|--data)
+			shift
+            filename="${1}"
+            ;;
+		-s|--update)
+			update="yes"
+            ;;
+		*)
+            if [ -n "${got_template_id}" ]; then
+                show_usage "Invalid option: ${arg}"
+            fi
+            got_template_id=y
+            template_id="${arg}"
+            ;;
+		esac
+		
+        shift
+        arg="${1}"
+	done
+
+    if [ -n "${update}" -a -z "${filename}" ]; then
+        show_usage "Missing survey data filename"
+    fi
+
+    if [ -z "${got_template_id}" ]; then
+        show_usage "Missing template id"
+    fi
+
+    echo ""
+    if [ -z "${username}" ]; then
+        read -p "Username: " username
+    fi
+
+    if [ -z "${password}" ]; then
+        read -s -p "Password: " password
+        echo ""
+    fi
+}
+
+#
+# Show usage
+#
+show_usage() {
+    local usage_error="${1}"
+
+	if [ -n "${usage_error}" ]; then
+        echo "" >&2
+		echo "${usage_error}" >&2
+        echo "" >&2
+    fi
+
+    echo ""
+    echo "${script} v${version}"
+    echo ""
+    echo "    Retrieve or update survey data for a tower job template"
+    echo "    API Reference: https://docs.ansible.com/ansible-tower/${tower_version}/html/towerapi/api_ref.html"
+	echo ""
+    echo "Usage:"
+    echo ""
+    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-d|--data filename] [-s|--update] [-h|--help] template-id"
+	echo ""
+    echo "Options:"
+    echo ""
+    echo "    -t, --tower-host  tower server hostname or ip address"
+    echo "    -u, --username    tower username (default: prompt for username)"
+    echo "    -p, --password    tower password (default: prompt for password)"
+    echo "    -d, --data        survey data filename"
+    echo "    -s, --update      update survey data"
+    echo "    -h, --help        display this message and exit"
+    echo "    template-id       tower job template id"
+
+    echo ""
+	if [ -n "${usage_error}" ]; then
+		exit 1
+	fi
+    
+    exit
+}
+
+#
+# Cleanup temp files
+#
+clean_up() {
+    rm -rf "${data_file}"
+    rm -rf "${list_file}"
+}
+
+#
+# Show error
+#
+show_error() {
+    local message="${1}"
+    local details="${2}"
+
+    echo "" >&2
+    echo "${message}" >&2
+
+    if [ -n "${details}" ]; then
+        echo "${details}" >&2
+    fi
+
+    echo "" >&2
+    clean_up
+    exit 1
+}
+
+#
+# Get data
+#
+get_data() {
+    local result
+    
+    result=$(curl -k -s -S -f -o ${data_file} -u "${username}:${password}" "https://${tower}${data_path}" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        show_error "Error retrieving data from server" "${result}"
+    fi
+}
+
+#
+# Set data
+#
+set_data() {
+    local result
+    
+    result=$(curl -k -s -S -f -H "Content-Type: application/json" -d @${data_file} -u "${username}:${password}" "https://${tower}${data_path}" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        show_error "Error sending data to server" "${result}"
+    fi
+}
+
+#
+# Manage survey
+#
+manage_survey() {
+    data_path="/api/v2/job_templates/${template_id}/survey_spec/"
+
+    if [ -n "${update}" ]; then
+        cat "${filename}" > "${data_file}"
+
+        echo ""
+        echo -n "Sending data. Please wait."
+        set_data
+        echo ""
+
+        echo "Survey data updated"
+        echo ""
+    else
+        echo ""
+        echo -n "Retrieving data. Please wait."
+        get_data
+        echo ""
+
+        if [ -n "${filename}" ]; then
+            cat "${data_file}" | jq -M '.' > "${filename}"
+            echo "Survey data saved to ${filename}"
+        else
+            echo ""
+            cat "${data_file}" | jq -M '.'
+        fi
+        echo ""
+    fi
+
+    clean_up
+    exit
+}
+
+#
+# Main
+#
+parse_args ${@}
+manage_survey

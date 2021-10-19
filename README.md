@@ -119,14 +119,14 @@ Usage:
 ```bash
 $ tower-job-output --help
 
-tower-job-output v0.3
+tower-job-output v0.4
 
     Retrieve standard output for an ansible tower job
     API Reference: https://docs.ansible.com/ansible-tower/3.8.2/html/towerapi/api_ref.html
 
 Usage:
 
-    tower-job-output [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename [-f|--format ansi|html]] [-l|--limit hostnames] [-c|--changed] [-h|--help] job-id
+    tower-job-output [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename] [-f|--format ansi|html|txt] [-l|--limit hostnames] [-c|--changed] [-h|--help] job-id
 
 Options:
 
@@ -150,4 +150,82 @@ Password:
 
 Retrieving data. Please wait.
 Output saved to output.html
+```
+
+### tower-template-list
+
+Usage:
+
+```bash
+$ tower-template-list --help
+
+tower-template-list v0.1
+
+    Retrieve the list of ansible tower job templates
+    API Reference: https://docs.ansible.com/ansible-tower/3.8.2/html/towerapi/api_ref.html
+
+Usage:
+
+    tower-template-list [-t|--tower-host host] [-u|--username username] [-p|--password password] [-h|--help]
+
+Options:
+
+    -t, --tower-host  tower server hostname or ip address
+    -u, --username    tower username (default: prompt for username)
+    -p, --password    tower password (default: prompt for password)
+    -h, --help        display this message and exit
+```
+
+Example:
+
+```bash
+$ tower-job-list -t ansibletower.dev.internal -u admin
+
+Password:******
+
+Retrieving data. Please wait...
+
+ID   Name                                       Job Type  Inventory       Project                              Playbook   Survey  Become
+--   ----                                       --------  ---------       -------                              --------   ------  ------
+17   Configuration management: Web Server       check     Dev_Hosts       Configuration_Management             site.yml   true    false
+35   Hosts fact collection                      run       Dev_Hosts       Fact_Collection: Branch Master       facts.yml  false   false
+55   Servers Access-Validate                    check     Prod_Hosts      Access_Validation: v1.0              site.yml   true    true
+```
+
+### tower-template-survey
+
+Usage:
+
+```bash
+$ tower-template-survey --help
+
+tower-template-survey v0.1
+
+    Retrieve or update survey data for a tower job template
+    API Reference: https://docs.ansible.com/ansible-tower/3.8.2/html/towerapi/api_ref.html
+
+Usage:
+
+    tower-template-survey [-t|--tower-host host] [-u|--username username] [-p|--password password] [-d|--data filename] [-s|--update] [-h|--help] template-id
+
+Options:
+
+    -t, --tower-host  tower server hostname or ip address
+    -u, --username    tower username (default: prompt for username)
+    -p, --password    tower password (default: prompt for password)
+    -d, --data        survey data filename
+    -s, --update      update survey data
+    -h, --help        display this message and exit
+    template-id       tower job template id
+```
+
+Example:
+
+```bash
+$ tower-template-survey -t ansibletower.dev.internal -u admin -d /tmp/survey_data.json 17
+
+Password:******
+
+Retrieving data. Please wait.
+Survey data saved to /tmp/survey_data.json
 ```

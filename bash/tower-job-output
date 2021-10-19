@@ -4,7 +4,7 @@
 # Script variables
 #
 script="tower-job-output"
-version="0.3"
+version="0.4"
 tower_version="3.8.2"
 tower=""
 username=""
@@ -127,7 +127,7 @@ show_usage() {
 	echo ""
     echo "Usage:"
     echo ""
-    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename [-f|--format ansi|html]] [-l|--limit hostnames] [-c|--changed] [-h|--help] job-id"
+    echo "    ${script} [-t|--tower-host host] [-u|--username username] [-p|--password password] [-o|--output filename] [-f|--format ansi|html|txt] [-l|--limit hostnames] [-c|--changed] [-h|--help] job-id"
 	echo ""
     echo "Options:"
     echo ""
@@ -295,13 +295,13 @@ show_output() {
                 then
                     if (.role != "")
                     then
-                        "\r\nTASK [" + .role + " : " + .task + "]"
+                        "\nTASK [" + .role + " : " + .task + "]"
                     else
-                        "\r\nTASK [" + .task + "]"
+                        "\nTASK [" + .task + "]"
                     end
                 elif (."stdout" != "")
                 then
-                    "\r\n" + .stdout
+                    "\n" + .stdout
                 else
                     empty
                 end'
@@ -315,12 +315,12 @@ show_output() {
                 then
                     if (.role != "")
                     then
-                        "\r\nTASK [" + .role + " : " + .task + "]"
+                        "\nTASK [" + .role + " : " + .task + "]"
                     else
-                        "\r\nTASK [" + .task + "]"
+                        "\nTASK [" + .task + "]"
                     end
                 else
-                    "\r\n" + .stdout
+                    "\n" + .stdout
                 end'
         fi
         clean_up
@@ -338,7 +338,7 @@ show_output() {
 
         if [ -n "${filename}" ]; then
             if [ "${format}" == "txt" ]; then
-                cat "${list_file}" | sed "s/\x1B\[[0-9;]\{1,\}[A-Za-z]//g" > "${filename}"
+                cat "${list_file}" | sed -e "s/$(printf '\r')//g" -e 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g' > "${filename}"
             else
                 cat "${list_file}" > "${filename}"
             fi
@@ -346,7 +346,7 @@ show_output() {
         else
             echo ""
             if [ "${format}" == "txt" ]; then
-                cat "${list_file}" | sed "s/\x1B\[[0-9;]\{1,\}[A-Za-z]//g"
+                cat "${list_file}" | sed -e "s/$(printf '\r')//g" -e 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
             else
                 cat "${list_file}"
             fi
